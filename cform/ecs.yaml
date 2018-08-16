@@ -18,7 +18,7 @@ Parameters:
   EcsAmiId:
     Type: String
     Description: REQUIRED - Default ECS Optimized AMI for us-west-2 region. Please change it to reflect your regions' latest ECS AMI-ID
-    Default: 'ami-8e7bc4ee'
+    Default: 'ami-d2f489aa'
   EcsInstanceType:
     Type: String
     Description: >
@@ -101,7 +101,7 @@ Parameters:
     Description: >
       Optional - Specifies the Size in GBs, of the newly created Amazon
       Elastic Block Store (Amazon EBS) volume
-    Default: '22'
+    Default: '5'
   EbsVolumeType:
     Type: String
     Description: Optional - Specifies the Type of (Amazon EBS) volume
@@ -136,6 +136,7 @@ Conditions:
 Resources:
   MyCluster:
     Type: "AWS::ECS::Cluster"
+    DependsOn: EcsInstanceAsg
     Properties:
       ClusterName: !Ref EcsClusterName
   Vpc:
@@ -236,7 +237,9 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
            #!/bin/bash
+           yum install -y aws-cfn-bootstrap
            echo ECS_CLUSTER=${EcsClusterName} >> /etc/ecs/ecs.config
+           /opt/aws/bin/cfn-signal -e 0 --region ${AWS::Region} --stack ${AWS::StackName} --resource EcsInstanceAsg
   EcsInstanceAsg:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
@@ -251,9 +254,9 @@ Resources:
           - [ !Sub "${PubSubnetAz1}" ]
         - !Ref SubnetIds
       LaunchConfigurationName: !Ref EcsInstanceLc
-      MinSize: '0'
-      MaxSize:  '3'
-      DesiredCapacity: '3'
+      MinSize: 6
+      MaxSize:  12
+      DesiredCapacity: 6
       NotificationConfigurations:
       - TopicARN: !Ref ASGSNSTopic
         NotificationTypes:
@@ -269,6 +272,19 @@ Resources:
             This instance is the part of the Auto Scaling group which was created
             through ECS Console
           PropagateAtLaunch: 'true'
+    UpdatePolicy:
+      AutoScalingRollingUpdate:
+        MinInstancesInService: 6
+        MaxBatchSize: 3
+        PauseTime: PT10M
+        WaitOnResourceSignals: true
+        MinSuccessfulInstancesPercent: 100
+        SuspendProcesses:
+          - HealthCheck
+          - ReplaceUnhealthy
+          - AZRebalance
+          - AlarmNotification
+          - ScheduledActions
   taskdefinition:
     Type: "AWS::ECS::TaskDefinition"
     Properties:
@@ -317,7 +333,7 @@ Resources:
       DeploymentConfiguration:
         MaximumPercent: 100
         MinimumHealthyPercent: 50
-      DesiredCount: 2
+      DesiredCount: 6
       TaskDefinition: !Ref taskdefinition
     DependsOn:
       - ECSServiceRole
